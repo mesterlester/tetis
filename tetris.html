@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ibser den</title>
+  </head>
+  <body> 
+  <!-- Removed duplicate script block; all JS is now at the end of body -->
+ <div style="font-size: 40px; color: red; text-shadow: 2px 2px 2px black;">
+
+
+  Jeg ibser den hårdt<br />
+   vær dag <br />
+   vær nat <br />
+   25 timer i døgnet <br />
+  300 megaton jouls per goon <br />
+
+</div>
+<button type="button" id="play-tetris-music">touch me!</button>
+<audio id="tetris-audio" loop>
+  <source src="tetris music.mp3" type="audio/mpeg">
+</audio>
+<script>
+document.getElementById('play-tetris-music').addEventListener('click', function() {
+  var audio = document.getElementById('tetris-audio');
+  audio.pause();
+  audio.currentTime = 0;
+  var playPromise = audio.play();
+  if (playPromise !== undefined) {
+    playPromise.catch(function(error) {
+      alert('Audio playback failed. Please check your browser settings or audio file path.');
+    });
+  }
+});
+</script>
+<audio id="clank-audio">
+  <source src="metal-clank.mp3" type="audio/mpeg">
+</audio>
+<img src="jarvis-meme.png" alt="Image" style="width:100%;height:auto;">
+<h1>jarvis jerk it a little</h1>
+
+<!-- Scoreboard -->
+<div style="text-align:center; color:black; font-size:22px; margin:10px 0;">
+  Score: <span id="score">0</span> &nbsp; | &nbsp;
+  Combo: <span id="combo">0</span> &nbsp; | &nbsp;
+  <span id="multiplier">(x1)</span>
+</div>
+
+<canvas id="tetris" width="240" height="400" style="background: #111; display:block; margin:auto"></canvas>
+<div style="text-align:center; color:black; font-size:18px; margin-top:10px;">
+  Press <b>C</b> to save/recall a block!
+  <div id="saved-block" style="display:inline-block; margin-left:20px;"></div>
+</div>
+
+<!-- Settings Panel -->
+<div id="settings-panel" style="margin:20px auto; max-width:400px; background:#eee; border-radius:10px; padding:15px; box-shadow:0 2px 8px #0002;">
+  <h3 style="margin-top:0; color:#222;">Settings</h3>
+  <label>
+   Drop Speed (ms): 
+   <input type="number" id="drop-speed" min="100" max="2000" step="50" value="1000" style="width:80px;">
+  </label>
+  <br>
+  <label>
+   Arena Width: 
+   <input type="number" id="arena-width" min="6" max="20" value="12" style="width:50px;">
+  </label>
+  <label>
+   Arena Height: 
+   <input type="number" id="arena-height" min="10" max="40" value="20" style="width:50px;">
+  </label>
+  <br>
+  <label>
+   Block Colors:
+   <input type="color" id="color-t" value="#FF0D72" title="T">
+   <input type="color" id="color-i" value="#0DC2FF" title="I">
+   <input type="color" id="color-s" value="#0DFF72" title="S">
+   <input type="color" id="color-z" value="#F538FF" title="Z">
+   <input type="color" id="color-l" value="#FF8E0D" title="L">
+   <input type="color" id="color-j" value="#FFE138" title="J">
+   <input type="color" id="color-o" value="#3877FF" title="O">
+  </label>
+  <br>
+  <button id="apply-settings" style="margin-top:10px;">Apply</button>
+</div>
+
+<script>
+// Tetris with point counter, combo counter, all block types, block saver (C key), and settings
+
+document.addEventListener('DOMContentLoaded', function() {
+  const clank = document.getElementById('clank-audio');
+
+  // Play clank sound for all keyboard and mouse button presses, limit to 0.5s
+  function playClank() {
+    clank.currentTime = 0;
+    clank.play();
+    setTimeout(() => { clank.pause(); clank.currentTime = 0; }, 500);
+  }
+
+  // Mouse buttons
+  document.addEventListener('mousedown', playClank);
+
+  // Keyboard buttons
+  document.addEventListener('keydown', playClank);
+
+  // Play clank sound for all button clicks, limit to 0.5s
+  document.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', playClank);
+  });
+
+  // Tetris canvas setup
+  let canvas = document.getElementById('tetris');
+  let context = canvas.getContext('2d');
+  context.scale(20, 20);
+
+  // Tetris implementation
+  const arena = createMatrix(
+    parseInt(document.getElementById('arena-width').value),
+    parseInt(document.getElementById('arena-height').value)
+  );
+  let dropCounter = 0;
+  let dropInterval = parseInt(document.getElementById('drop-speed').value);
+  let lastTime = 0;
+  let score = 0;
+  let combo = 0;
+  let multiplier = 1;
+  let savedBlock = null;
+  let canSave = true;
+
+  const colors = {
+    'T': document.getElementById('color-t').value,
+    'O': document.getElementById('color-o').value,
+    'L': document.getElementById('color-l').value,
+    'J': document.getElementById('color-j').value,
+    'I': document.getElementById('color-i').value,
+    'S': document.getElementById('color-s').value,
+    'Z': document.getElementById('color-z').value
+  };
+
+  function createMatrix(w, h) {
+    const matrix = [];
+    while (h--) {
+      matrix.push(new Array(w).fill(0));
+    }
+    return matrix;
+  }
+
+  function createPiece(type) {
+    if (type === 'T') {
+      return [
+        [0, 0, 0],
+        [1, 1, 1],
+        [0, 1, 0],
+      ];
+    } else if (type === 'O') {
+      return [
+        [2, 2],
+        [2, 2],
+      ];
+    } else if (type === 'L') {
+      return [
+        [0, 3, 0],
+        [0, 3, 0],
+        [0, 3, 3],
+      ];
+    } else if (type === 'J') {
+      return [
+        [0, 4, 0],
+        [0, 4, 0],
+        [4, 4, 0],
+      ];
+    } else if (type === 'I') {
+      return [
+        [0, 5, 0, 0],
+        [0, 5, 0, 0],
+        [0, 5, 0, 0],
+        [0, 5, 0, 0],
+      ];
+    } else if (type === 'S') {
+      return [
+        [0, 6, 6],
+        [6, 6, 0],
+        [0, 0, 0],
+      ];
+    } else if (type === 'Z') {
+      return [
+        [7, 7, 0],
+        [0, 7, 7],
+        [0, 0, 0],
+      ];
+    }
+  }
+
+  function drawMatrix(matrix, offset) {
+    matrix.forEach((row, y) => {
+      row.forEach((value, x) => {
+        if (value !== 0) {
+          context.fillStyle = Object.values(colors)[value - 1];
+          context.fillRect(x + offset.x, y + offset.y, 1, 1);
+        }
+      });
+    });
+  }
+
+  function merge(arena, player) {
+    player.matrix.forEach((row, y) => {
+      row.forEach((value, x) => {
+        if (value !== 0) {
+          arena[y + player.pos.y][x + player.pos.x] = value;
+        }
+      });
+    });
+  }
+
+function collide(arena, player) {
+    const m = player.matrix;
+    const o = player.pos;
+    for (let y = 0; y < m.length; ++y) {
+        for (let x = 0; x < m[y].length; ++x) {
+            if (m[y][x] !== 0 &&
+                (arena[y + o.y] &&
+                    arena[y + o.y][x + o.x]) !== 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Prevent arrow keys from scrolling the page
+window.addEventListener('keydown', function(e) {
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) {
+        e.preventDefault();
+    }
+}, { passive: false });
+function playerDrop() {
+    player.pos.y++;
+    if (collide(arena, player)) {
+        player.pos.y--;
+        merge(arena, player);
+        playerReset();
+        arenaSweep();
+        updateScore();
+        canSave = true;
+    }
+    dropCounter = 0;
+}
+
+function playerHardDrop() {
+    while (!collide(arena, player)) {
+        player.pos.y++;
+    }
+    player.pos.y--;
+    merge(arena, player);
+    playerReset();
+    arenaSweep();
+    updateScore();
+    canSave = true;
+    dropCounter = 0;
+}
+
+function playerMove(dir) {
+    player.pos.x += dir;
+    if (collide(arena, player)) {
+        player.pos.x -= dir;
+    }
+}
+
+// Add event for Space key to hard drop
+document.addEventListener('keydown', event => {
+    if (event.code === 'Space') {
+        event.preventDefault();
+        playerHardDrop();
+    }
+});
+
+  function playerReset() {
+    const pieces = 'TJLOSZI';
+    player.matrix = createPiece(pieces[pieces.length * Math.random() | 0]);
+    player.pos.y = 0;
+    player.pos.x = (arena[0].length / 2 | 0) -
+      (player.matrix[0].length / 2 | 0);
+    if (collide(arena, player)) {
+      arena.forEach(row => row.fill(0));
+      score = 0;
+      combo = 0;
+      multiplier = 1;
+      updateScore();
+    }
+  }
+
+  function playerRotate(dir) {
+    const pos = player.pos.x;
+    let offset = 1;
+    rotate(player.matrix, dir);
+    while (collide(arena, player)) {
+      player.pos.x += offset;
+      offset = -(offset + (offset > 0 ? 1 : -1));
+      if (offset > player.matrix[0].length) {
+        rotate(player.matrix, -dir);
+        player.pos.x = pos;
+        return;
+      }
+    }
+  }
+
+  function rotate(matrix, dir) {
+    for (let y = 0; y < matrix.length; ++y) {
+      for (let x = 0; x < y; ++x) {
+        [
+          matrix[x][y],
+          matrix[y][x],
+        ] = [
+            matrix[y][x],
+            matrix[x][y],
+          ];
+      }
+    }
+    if (dir > 0) {
+      matrix.forEach(row => row.reverse());
+    } else {
+      matrix.reverse();
+    }
+  }
+
+  function arenaSweep() {
+    let rowCount = 1;
+    outer: for (let y = arena.length - 1; y >= 0; --y) {
+      for (let x = 0; x < arena[y].length; ++x) {
+        if (arena[y][x] === 0) {
+          continue outer;
+        }
+      }
+      const row = arena.splice(y, 1)[0].fill(0);
+      arena.unshift(row);
+      ++y;
+      score += rowCount * 10 * multiplier;
+      combo++;
+      multiplier = Math.min(10, multiplier + 1);
+      rowCount *= 2;
+    }
+    if (rowCount === 1) {
+      combo = 0;
+      multiplier = 1;
+    }
+  }
+
+  function updateScore() {
+    document.getElementById('score').innerText = score;
+    document.getElementById('combo').innerText = combo;
+    document.getElementById('multiplier').innerText = `(x${multiplier})`;
+  }
+
+  function draw() {
+    context.fillStyle = '#111';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    drawMatrix(arena, { x: 0, y: 0 });
+    drawMatrix(player.matrix, player.pos);
+  }
+
+  function update(time = 0) {
+    const deltaTime = time - lastTime;
+    lastTime = time;
+    dropCounter += deltaTime;
+    if (dropCounter > dropInterval) {
+      playerDrop();
+    }
+    draw();
+    requestAnimationFrame(update);
+  }
+
+  // Player object
+  const player = {
+    pos: { x: 0, y: 0 },
+    matrix: null,
+  };
+
+  // Block saver
+  document.addEventListener('keydown', event => {
+    if (event.code === 'KeyC') {
+      if (canSave) {
+        if (savedBlock) {
+          // Swap
+          [player.matrix, savedBlock] = [savedBlock, player.matrix];
+        } else {
+          savedBlock = player.matrix;
+          playerReset();
+        }
+        canSave = false;
+        drawSavedBlock();
+      }
+    }
+  });
+
+  function drawSavedBlock() {
+    const savedDiv = document.getElementById('saved-block');
+    savedDiv.innerHTML = '';
+    if (!savedBlock) return;
+    const blockCanvas = document.createElement('canvas');
+    blockCanvas.width = 60;
+    blockCanvas.height = 60;
+    const ctx = blockCanvas.getContext('2d');
+    ctx.scale(20, 20);
+    savedBlock.forEach((row, y) => {
+      row.forEach((value, x) => {
+        if (value !== 0) {
+          ctx.fillStyle = Object.values(colors)[value - 1];
+          ctx.fillRect(x, y, 1, 1);
+        }
+      });
+    });
+    savedDiv.appendChild(blockCanvas);
+  }
+// --- Advanced Settings ---
+document.getElementById('apply-settings').addEventListener('click', () => {
+    // Reset game state when settings are applied
+    score = 0;
+    combo = 0;
+    multiplier = 1;
+    savedBlock = null;
+    canSave = true;
+    updateScore();
+    playerReset();
+    drawSavedBlock();
+});
+// Add new settings fields to the settings panel
+const settingsPanel = document.getElementById('settings-panel');
+// Only add once
+if (!document.getElementById('side-speed')) {
+    // Side-to-side speed
+    const sideSpeedLabel = document.createElement('label');
+    sideSpeedLabel.innerHTML = `
+        Side Move Speed (ms): 
+        <input type="number" id="side-speed" min="30" max="500" step="10" value="100" style="width:60px;">
+    `;
+    settingsPanel.insertBefore(document.createElement('br'), settingsPanel.lastElementChild);
+    settingsPanel.insertBefore(sideSpeedLabel, settingsPanel.lastElementChild);
+
+    // Soft drop speed
+    const softDropLabel = document.createElement('label');
+    softDropLabel.innerHTML = `
+        <br>Soft Drop Speed (ms): 
+        <input type="number" id="soft-drop-speed" min="10" max="500" step="10" value="50" style="width:60px;">
+    `;
+    settingsPanel.insertBefore(softDropLabel, settingsPanel.lastElementChild);
+
+    // Ghost piece toggle
+    const ghostLabel = document.createElement('label');
+    ghostLabel.innerHTML = `
+        <br><input type="checkbox" id="ghost-toggle" checked> Show Ghost Piece
+    `;
+    settingsPanel.insertBefore(ghostLabel, settingsPanel.lastElementChild);
+
+    // Sound toggle
+    const soundLabel = document.createElement('label');
+    soundLabel.innerHTML = `
+        <br><input type="checkbox" id="sound-toggle" checked> Enable Sounds
+    `;
+    settingsPanel.insertBefore(soundLabel, settingsPanel.lastElementChild);
+}
+
+// --- Settings Variables ---
+let sideMoveInterval = parseInt(document.getElementById('side-speed').value);
+let softDropInterval = parseInt(document.getElementById('soft-drop-speed').value);
+let showGhost = document.getElementById('ghost-toggle').checked;
+let soundEnabled = document.getElementById('sound-toggle').checked;
+
+// --- Settings Panel Logic (extend existing) ---
+document.getElementById('apply-settings').addEventListener('click', () => {
+    // Existing logic...
+    sideMoveInterval = parseInt(document.getElementById('side-speed').value);
+    softDropInterval = parseInt(document.getElementById('soft-drop-speed').value);
+    showGhost = document.getElementById('ghost-toggle').checked;
+    soundEnabled = document.getElementById('sound-toggle').checked;
+});
+
+// --- Side-to-side movement with repeat ---
+let sideMoveTimer = null;
+let sideMoveDir = 0;
+
+function startSideMove(dir) {
+    if (sideMoveTimer) clearInterval(sideMoveTimer);
+    sideMoveDir = dir;
+    playerMove(dir);
+    sideMoveTimer = setInterval(() => playerMove(sideMoveDir), sideMoveInterval);
+}
+function stopSideMove() {
+    if (sideMoveTimer) clearInterval(sideMoveTimer);
+    sideMoveTimer = null;
+    sideMoveDir = 0;
+}
+
+document.addEventListener('keydown', event => {
+    if (event.repeat) return;
+    if (event.code === 'ArrowLeft') startSideMove(-1);
+    else if (event.code === 'ArrowRight') startSideMove(1);
+});
+document.addEventListener('keyup', event => {
+    if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') stopSideMove();
+});
+
+// --- Soft Drop with adjustable speed ---
+let softDropTimer = null;
+document.addEventListener('keydown', event => {
+    if (event.code === 'ArrowDown' && !softDropTimer) {
+        softDropTimer = setInterval(playerDrop, softDropInterval);
+    }
+});
+document.addEventListener('keyup', event => {
+    if (event.code === 'ArrowDown' && softDropTimer) {
+        clearInterval(softDropTimer);
+        softDropTimer = null;
+    }
+});
+
+// --- Ghost Piece ---
+function drawGhostPiece() {
+    if (!showGhost) return;
+    let ghostY = player.pos.y;
+    while (!collide(arena, {matrix: player.matrix, pos: {x: player.pos.x, y: ghostY}})) {
+        ghostY++;
+    }
+    ghostY--;
+    player.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) {
+                context.globalAlpha = 0.3;
+                context.fillStyle = Object.values(colors)[value - 1];
+                context.fillRect(x + player.pos.x, y + ghostY, 1, 1);
+                context.globalAlpha = 1.0;
+            }
+        });
+    });
+}
+
+// Patch draw() to include ghost piece
+const origDraw = draw;
+draw = function() {
+    context.fillStyle = '#111';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    drawMatrix(arena, { x: 0, y: 0 });
+    drawGhostPiece();
+    drawMatrix(player.matrix, player.pos);
+};
+
+// --- Sound Toggle ---
+// Patch playClank to respect soundEnabled
+const origPlayClank = playClank;
+playClank = function() {
+    if (!soundEnabled) return;
+    origPlayClank();
+};
+  // Settings panel logic
+  document.getElementById('apply-settings').addEventListener('click', () => {
+    // Update drop speed
+    dropInterval = parseInt(document.getElementById('drop-speed').value);
+    // Update arena size
+    const w = parseInt(document.getElementById('arena-width').value);
+    const h = parseInt(document.getElementById('arena-height').value);
+    // Resize canvas
+    canvas.width = w * 20;
+    canvas.height = h * 20;
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.scale(20, 20);
+    // Reset arena
+    while (arena.length > h) arena.pop();
+    while (arena.length < h) arena.push(new Array(w).fill(0));
+    for (let y = 0; y < arena.length; ++y) {
+      if (arena[y].length > w) arena[y].length = w;
+      while (arena[y].length < w) arena[y].push(0);
+    }
+    // Update colors
+    colors.T = document.getElementById('color-t').value;
+    colors.I = document.getElementById('color-i').value;
+    colors.S = document.getElementById('color-s').value;
+    colors.Z = document.getElementById('color-z').value;
+    colors.L = document.getElementById('color-l').value;
+    colors.J = document.getElementById('color-j').value;
+    colors.O = document.getElementById('color-o').value;
+    draw();
+  });
+
+  // Keyboard controls
+  document.addEventListener('keydown', event => {
+    if (event.code === 'ArrowLeft') {
+      playerMove(-1);
+    } else if (event.code === 'ArrowRight') {
+      playerMove(1);
+    } else if (event.code === 'ArrowDown') {
+      playerDrop();
+    } else if (event.code === 'ArrowUp') {
+      playerRotate(1);
+    }
+  });
+
+  playerReset();
+  updateScore();
+  update();
+});
+</script>
